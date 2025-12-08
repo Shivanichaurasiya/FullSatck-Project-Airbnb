@@ -19,7 +19,6 @@ const listingSchema = new Schema({
     default: "default.jpg",
   }
 },
-
  
   price: Number,
   location: String,
