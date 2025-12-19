@@ -7,7 +7,8 @@ const path = require('path');
 const methodOverride = require("method-override");
 const wrapAsync = require('./utils/wrapAsync.js');
 const ExpressError = require('./utils/ExpressError.js');
-
+const{listingSchema , reviewSchema} = require('./schema.js');
+const Review = require("./models/review");
 
 
 const MONGO_URL='mongodb://127.0.0.1:27017/wanderlust';
@@ -20,10 +21,12 @@ main().then(()=>{
 async function main(){
     await mongoose.connect(MONGO_URL)
 }
+app.use(express.json());     // JSON body ke liye
+app.use(express.urlencoded({ extended: true }));  // form-data ke liye
 app.engine("ejs",engine);
 app.set("view engine","ejs");
 app.set("views",path.join(__dirname,"views"));
-app.use(express.urlencoded({extended:true}));
+
 app.use(methodOverride("_method"));
 app.use(express.static(path.join(__dirname,"/public")));
 
@@ -33,6 +36,38 @@ app.get("/",(req,res)=>{
     res.send("Hi i am root");
 
 });
+
+
+//server validation using joi
+const validateListing = (req,res,next)=>{
+    let { error } = listingSchema.validate(req.body);
+    
+
+    if(error){
+        let errMsg = error.details.map((el)=>el.message).join(",")
+        throw new ExpressError(400,errMsg)
+    }
+    else{
+        next();
+    }
+}
+
+
+const validateReview = (req,res,next)=>{
+    let { error } = reviewSchema.validate(req.body);
+    
+
+    if(error){
+        let errMsg = error.details.map((el)=>el.message).join(",")
+        throw new ExpressError(400,errMsg)
+    }
+    else{
+        next();
+    }
+}
+
+
+
 // index route
 app.get("/listings", wrapAsync(async (req,res)=>{
     const allListings=await Listing.find({})
@@ -49,7 +84,7 @@ app.get("/listings/new",(req,res)=>{
 // show route
 app.get("/listings/:id",wrapAsync( async(req, res) => {
     let { id } = req.params;
-    const listing = await Listing.findById(id);
+    const listing = await Listing.findById(id).populate("reviews");
     if(!listing){
         return res.status(400).send("Listing not found");
     }
@@ -58,18 +93,20 @@ app.get("/listings/:id",wrapAsync( async(req, res) => {
 );
 
 // Create route
-app.post("/listings", wrapAsync(async(req,res,next)=>{
-    if(!req.body.listing){
-        throw new ExpressError(400,"send valid data for listing")
-    }
+app.post("/listings", validateListing , wrapAsync(async(req,res,next)=>{
+   
+    console.log("REQ BODY :", req.body);
     // let{title,description,image,price,country,location} = req.body;
     // let listing = req.body.listing;
     // console.log(listing);
 
     const newListing = new Listing(req.body.listing);
+   
     await newListing.save();
     res.redirect("/listings")
-    conaole.log(newListing);  
+    console.log(newListing);  
+
+
 
 })
 );
@@ -84,10 +121,8 @@ app.get("/listings/:id/edit",wrapAsync(async (req,res)=>{
 );
 
 //update route
-app.put("/listings/:id",wrapAsync(async (req,res)=>{
-    if(!req.body.listing){
-        throw new ExpressError(400,"send valid data for listing")
-    }    
+app.put("/listings/:id",validateListing,wrapAsync(async (req,res)=>{
+   
     let {id} =req.params;
     await Listing.findByIdAndUpdate(id,req.body.listing,{ new: true});
     res.redirect(`/listings/${id}`)
@@ -102,6 +137,30 @@ app.delete("/listings/:id",wrapAsync(async (req,res)=>{
     res.redirect('/listings')
 })
 );
+
+
+// reviews
+// post route for reviews
+
+app.post("/listings/:id/reviews",validateReview ,wrapAsync(async (req,res)=>{
+    let listing= await Listing.findById(req.params.id);
+    let newReview = new Review(req.body.review);
+
+    listing.reviews.push(newReview);
+    await newReview.save();
+    await listing.save();
+    
+    res.redirect(`/listings/${listing._id}`);
+}));
+
+// Delete reivew route
+
+app.delete("/listings/:id/reviews/:reviewId",wrapAsync(async (req,res)=>{
+    let {id,reviewId} = req.params;
+    await Listing.findByIdAndUpdate(id,{$pull:{reviews:reviewId}});
+    await Review.findByIdAndDelete(reviewId);
+    res.redirect(`/listings/${id}`);
+}));
 
 
 // app.get("/testListing",async (req,res)=>{
@@ -130,7 +189,7 @@ app.use((err,req,res,next)=>{
     res.status(statusCode).render('error.ejs',{message});
 })
 app.listen(8080,()=>{
-    console.log('server is listning to port 8080')
+    console.log('server is listning to port http://localhost:8080')
 });
 
 // const mongoose = require('mongoose');
